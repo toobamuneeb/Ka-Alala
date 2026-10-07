@@ -75,9 +75,8 @@ export default async function UserDetailPage({
 
       <Flash searchParams={query} />
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
         <StatTile label="Total XP" value={profile.total_xp} />
-        {/* <StatTile label="Current Streak" value={`${profile.current_streak} days`} /> */}
         <StatTile label="Lessons Completed" value={lessonsDone ?? 0} />
         <StatTile label="Badges" value={profile.badges_count} />
       </div>

@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
 import MediaFields from './MediaFields';
+import { useLessonForm } from './LessonForm';
 import { input, label } from '@/components/ui';
 import type { LessonType } from '@/lib/types';
 
@@ -12,15 +12,16 @@ const HINT: Record<LessonType, string> = {
 };
 
 /**
- * Type picker for the add-lesson form. The media/duration inputs only exist
- * while a media type is selected, so a quiz can't be created carrying an
- * upload or a duration the app would never use.
+ * Fields for the add-lesson form. The media/duration inputs only exist while a
+ * media type is selected, so a quiz can't be created carrying an upload or a
+ * duration the app would never use.
  *
- * `key={type}` remounts MediaFields on every switch, clearing a file that was
- * chosen for the previous type along with its detected duration.
+ * `type` lives in LessonForm rather than here because the upload needs it too
+ * (it decides the bucket); `key={type}` remounts MediaFields on every switch,
+ * clearing a file staged for the previous type along with its duration.
  */
 export default function AddLessonFields() {
-  const [type, setType] = useState<LessonType>('video');
+  const { type, setType, phase } = useLessonForm();
 
   return (
     <>
@@ -30,6 +31,7 @@ export default function AddLessonFields() {
           name="type"
           className={input}
           value={type}
+          disabled={phase !== 'idle'}
           onChange={e => setType(e.target.value as LessonType)}
         >
           <option value="video">Video</option>

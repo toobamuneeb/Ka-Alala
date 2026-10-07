@@ -5,6 +5,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin';
 import { createLesson, updateLesson, deleteLesson, moveLesson } from './actions';
 import AddLessonFields from './AddLessonFields';
 import MediaFields from './MediaFields';
+import { LessonForm } from './LessonForm';
 import { updateChapter } from '../actions';
 import { Card, Flash, input, label, btnSecondary } from '@/components/ui';
 import SubmitButton from '@/components/SubmitButton';
@@ -126,7 +127,14 @@ export default async function ChapterDetailPage({
           title={`Edit lesson: ${editing.title}`}
           actions={<PendingLink href={`/chapters/${id}`} className={btnSecondary}>Cancel</PendingLink>}
         >
-          <form id="edit-lesson" action={updateLesson} className="grid max-w-xl gap-4">
+          <LessonForm
+            key={editing.id}
+            id="edit-lesson"
+            action={updateLesson}
+            chapterId={id}
+            fixedType={editing.type}
+            submitLabel="Save lesson"
+          >
             <input type="hidden" name="chapterId" value={id} />
             <input type="hidden" name="lessonId" value={editing.id} />
             <div>
@@ -151,16 +159,23 @@ export default async function ChapterDetailPage({
             <p className="text-xs text-neutral-400">
               Lesson type ({editing.type}) can&apos;t be changed after creation - delete and recreate instead.
             </p>
-            <SubmitButton className="w-fit" pendingLabel="Saving...">Save lesson</SubmitButton>
-          </form>
+          </LessonForm>
         </Card>
       ) : (
         <Card title="Add a lesson">
-          <form action={createLesson} className="grid max-w-xl gap-4">
+          {/* Keyed on the lesson count so a successful create remounts the form:
+              clears the fields, the staged file and any leftover busy state.
+              Calling the action by hand loses the automatic reset that
+              <form action={...}> would have done. */}
+          <LessonForm
+            key={`add-${list.length}`}
+            action={createLesson}
+            chapterId={id}
+            submitLabel="Create lesson"
+          >
             <input type="hidden" name="chapterId" value={id} />
             <AddLessonFields />
-            <SubmitButton className="w-fit" pendingLabel="Creating...">Create lesson</SubmitButton>
-          </form>
+          </LessonForm>
         </Card>
       )}
     </div>

@@ -14,7 +14,6 @@ type UserRow = Pick<
   | "email"
   | "display_name"
   | "total_xp"
-  | "current_streak"
   | "badges_count"
   | "created_at"
 > & { subscriptions: Pick<Subscription, "plan" | "status"> | null };
@@ -43,7 +42,7 @@ export default async function UsersPage({
     .from("profiles")
     // count: 'exact' gives the total matching rows, not just this page's slice.
     .select(
-      "id, email, display_name, total_xp, current_streak, badges_count, created_at, subscriptions(plan, status)",
+      "id, email, display_name, total_xp, badges_count, created_at, subscriptions(plan, status)",
       { count: "exact" },
     )
     .order("created_at", { ascending: false })
@@ -100,7 +99,6 @@ export default async function UsersPage({
               <tr className="border-b border-neutral-100">
                 <th className={th}>User</th>
                 <th className={th}>XP</th>
-                {/* <th className={th}>Streak</th> */}
                 <th className={th}>Badges</th>
                 <th className={th}>Plan</th>
                 <th className={th}>Joined</th>
@@ -119,7 +117,6 @@ export default async function UsersPage({
                       <p className="text-xs text-neutral-400">{user.email}</p>
                     </td>
                     <td className={td}>{user.total_xp}</td>
-                    {/* <td className={td}>{user.current_streak}🔥</td> */}
                     <td className={td}>{user.badges_count}</td>
                     <td className={td}>
                       {sub ? (
@@ -144,7 +141,7 @@ export default async function UsersPage({
               })}
               {list.length === 0 && (
                 <EmptyRow
-                  colSpan={7}
+                  colSpan={6}
                   text={term ? "No users match that search." : "No users yet."}
                 />
               )}
