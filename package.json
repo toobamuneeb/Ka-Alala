@@ -6,11 +6,14 @@
     "dev": "next dev --turbopack",
     "build": "next build --turbopack",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "compress-video": "node scripts/compress-video.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.4",
     "@supabase/supabase-js": "^2.109.0",
+    "mp4-muxer": "^5.2.2",
+    "mp4box": "^2.4.1",
     "next": "15.5.23",
     "react": "19.1.0",
     "react-dom": "19.1.0",

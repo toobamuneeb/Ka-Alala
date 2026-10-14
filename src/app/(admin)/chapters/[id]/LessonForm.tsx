@@ -47,6 +47,8 @@ const Ctx = createContext<{
   percent: number | null;
   resumed: boolean;
   phase: Phase;
+  preparing: boolean;
+  setPreparing: (b: boolean) => void;
 }>({
   type: "video",
   setType: () => {},
@@ -55,6 +57,8 @@ const Ctx = createContext<{
   percent: null,
   resumed: false,
   phase: "idle",
+  preparing: false,
+  setPreparing: () => {},
 });
 
 export function useLessonForm() {
@@ -94,6 +98,7 @@ export function LessonForm({
   const [file, setFile] = useState<File | null>(null);
   const [percent, setPercent] = useState<number | null>(null);
   const [resumed, setResumed] = useState(false);
+  const [preparing, setPreparing] = useState(false);
   // Saving is React's to track, not ours: these actions always redirect, and a
   // redirect means `await action(...)` never settles - a hand-rolled "saving"
   // flag would stay stuck on after the lesson had already been written.
@@ -103,7 +108,9 @@ export function LessonForm({
   const abortRef = useRef<(() => void) | null>(null);
 
   const uploading = percent !== null;
-  const busy = uploading || isSaving;
+  // Compressing counts as busy: submitting mid-compression would upload the
+  // untouched original and quietly undo the whole point.
+  const busy = uploading || isSaving || preparing;
   const phase: Phase = uploading ? "uploading" : isSaving ? "saving" : "idle";
 
   async function uploadStaged(stagedFile: File): Promise<string> {
@@ -167,15 +174,27 @@ export function LessonForm({
     });
   }
 
-  const label = uploading
-    ? `${resumed ? "Resuming" : "Uploading"} ${percent ?? 0}%...`
-    : isSaving
-      ? "Saving..."
-      : submitLabel;
+  const label = preparing
+    ? "Compressing video..."
+    : uploading
+      ? `${resumed ? "Resuming" : "Uploading"} ${percent ?? 0}%...`
+      : isSaving
+        ? "Saving..."
+        : submitLabel;
 
   return (
     <Ctx.Provider
-      value={{ type, setType, file, setFile, percent, resumed, phase }}
+      value={{
+        type,
+        setType,
+        file,
+        setFile,
+        percent,
+        resumed,
+        phase,
+        preparing,
+        setPreparing,
+      }}
     >
       <form id={id} onSubmit={handleSubmit} className="grid max-w-xl gap-4">
         {children}
