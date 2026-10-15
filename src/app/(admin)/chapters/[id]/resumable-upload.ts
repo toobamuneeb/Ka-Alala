@@ -3,6 +3,13 @@ import * as tus from "tus-js-client";
 // Supabase's resumable endpoint requires exactly 6MB chunks.
 const CHUNK_SIZE = 6 * 1024 * 1024;
 
+export class UploadCancelledError extends Error {
+  constructor() {
+    super("Upload cancelled.");
+    this.name = "UploadCancelledError";
+  }
+}
+
 /**
  * Resumable (TUS) upload straight to Supabase Storage.
  */
@@ -22,8 +29,17 @@ export function resumableUpload({
   onResumed: () => void;
 }): { done: Promise<void>; abort: () => void } {
   let upload: tus.Upload;
+  let cancel: () => void = () => {};
 
   const done = new Promise<void>((resolve, reject) => {
+    // tus's abort() stops sending but fires neither onSuccess nor onError, so
+    // without this the caller's await never returns and the form sits on
+    // "Uploading..." forever.
+    cancel = () => {
+      // true also deletes the partial upload, so it isn't resumed next time.
+      upload?.abort(true).catch(() => {});
+      reject(new UploadCancelledError());
+    };
     upload = new tus.Upload(file, {
       endpoint: `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/upload/resumable`,
       // Back off rather than give up on a flaky connection.
@@ -53,5 +69,5 @@ export function resumableUpload({
     });
   });
 
-  return { done, abort: () => upload?.abort() };
+  return { done, abort: () => cancel() };
 }

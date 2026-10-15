@@ -12,7 +12,12 @@ import { Spinner, btnPrimary } from "@/components/ui";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import type { LessonType } from "@/lib/types";
 import { createUploadTarget } from "./upload-actions";
-import { resumableUpload } from "./resumable-upload";
+import {
+  canCompressInBrowser,
+  compressVideo,
+  type CompressProgress,
+} from "@/lib/video/compress";
+import { resumableUpload, UploadCancelledError } from "./resumable-upload";
 
 type Phase = "idle" | "uploading" | "saving";
 
@@ -99,6 +104,7 @@ export function LessonForm({
   const [percent, setPercent] = useState<number | null>(null);
   const [resumed, setResumed] = useState(false);
   const [preparing, setPreparing] = useState(false);
+  const [compressing, setCompressing] = useState<CompressProgress | null>(null);
   // Saving is React's to track, not ours: these actions always redirect, and a
   // redirect means `await action(...)` never settles - a hand-rolled "saving"
   // flag would stay stuck on after the lesson had already been written.
@@ -110,7 +116,7 @@ export function LessonForm({
   const uploading = percent !== null;
   // Compressing counts as busy: submitting mid-compression would upload the
   // untouched original and quietly undo the whole point.
-  const busy = uploading || isSaving || preparing;
+  const busy = uploading || isSaving || preparing || compressing !== null;
   const phase: Phase = uploading ? "uploading" : isSaving ? "saving" : "idle";
 
   async function uploadStaged(stagedFile: File): Promise<string> {
@@ -148,13 +154,43 @@ export function LessonForm({
     setStale(false);
 
     if (file) {
+      // Compress here rather than when the file was picked: the admin fills
+      // in the rest of the form while this runs, and nothing has been sent
+      // anywhere yet if they change their mind.
+      let toUpload = file;
+      if (type === "video" && canCompressInBrowser()) {
+        try {
+          setCompressing({ phase: "probing", percent: null });
+          const out = await compressVideo(file, setCompressing);
+          // An already well-encoded lesson can come out larger - keep
+          // whichever is actually smaller.
+          if (out.size < file.size) toUpload = out;
+        } catch (err) {
+          // Not fatal: a lesson that uploads uncompressed still works, it
+          // just streams worse. Say so rather than blocking the save.
+          setError(
+            (err instanceof Error ? err.message : "Compression failed.") +
+              " Uploading the original instead.",
+          );
+        } finally {
+          setCompressing(null);
+        }
+      }
+
       try {
         setPercent(0);
         setResumed(false);
-        formData.set("mediaUrl", await uploadStaged(file));
+        formData.set("mediaUrl", await uploadStaged(toUpload));
       } catch (err) {
         setPercent(null);
-        setError(err instanceof Error ? err.message : "Upload failed.");
+        abortRef.current = null;
+        setError(
+          err instanceof UploadCancelledError
+            ? "Upload cancelled. Nothing was saved."
+            : err instanceof Error
+              ? err.message
+              : "Upload failed.",
+        );
         return; // nothing was saved - let them retry without losing the form
       }
       setPercent(null);
@@ -174,8 +210,18 @@ export function LessonForm({
     });
   }
 
-  const label = preparing
-    ? "Compressing video..."
+  const label = compressing
+    ? (compressing.phase === "probing"
+        ? "Reading video"
+        : compressing.phase === "finishing"
+          ? "Finishing"
+          : "Compressing video") +
+      (compressing.percent != null ? ` ${compressing.percent}%` : "...") +
+      (compressing.etaSeconds != null
+        ? ` (~${Math.ceil(compressing.etaSeconds / 60)} min left)`
+        : "")
+    : preparing
+    ? "Preparing..."
     : uploading
       ? `${resumed ? "Resuming" : "Uploading"} ${percent ?? 0}%...`
       : isSaving

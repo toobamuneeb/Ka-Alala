@@ -3,11 +3,7 @@
 import { useRef, useState } from "react";
 import { input, label } from "@/components/ui";
 import { useLessonForm } from "./LessonForm";
-import {
-  canCompressInBrowser,
-  compressVideo,
-  type CompressProgress,
-} from "@/lib/video/compress";
+import { withCorrectedType } from "@/lib/media/sniff";
 
 /**
 
@@ -57,6 +53,15 @@ function mmss(seconds: number) {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
+/**
+ * Bumped by hand whenever this upload path changes.
+ *
+ * Shown in the form so a stale bundle is obvious at a glance - several rounds
+ * of "it still does the same thing" turned out to be the browser running
+ * older code, which looks identical to the fix not working.
+ */
+const UPLOAD_BUILD = "v8";
+
 function prettySize(bytes: number) {
   return bytes >= 1048576
     ? `${(bytes / 1048576).toFixed(1)} MB`
@@ -79,8 +84,7 @@ export default function MediaFields({
   existingUrl?: string | null;
   defaultDuration?: number | null;
 }) {
-  const { file, setFile, percent, resumed, phase, setPreparing } =
-    useLessonForm();
+  const { file, setFile, percent, resumed, phase } = useLessonForm();
 
   const [duration, setDuration] = useState(
     defaultDuration != null ? String(defaultDuration) : "",
@@ -93,10 +97,7 @@ export default function MediaFields({
   const seq = useRef(0);
 
   const [compression, setCompression] = useState<
-    | { state: "idle" }
-    | { state: "running"; percent: number | null }
-    | { state: "done"; from: number; to: number }
-    | { state: "note"; message: string }
+    { state: "idle" } | { state: "note"; message: string }
   >({ state: "idle" });
 
   async function readDuration(src: string, revoke: boolean) {
@@ -115,65 +116,36 @@ export default function MediaFields({
   }
 
   async function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const picked = e.target.files?.[0] ?? null;
-    // Stage the original straight away: if compression fails or is skipped,
-    // the admin still has a working upload rather than an empty form.
-    setFile(picked);
+    const raw = e.target.files?.[0] ?? null;
     setCompression({ state: "idle" });
 
-    if (!picked) {
+    if (!raw) {
+      setFile(null);
       seq.current++;
       setDurationStatus("idle");
       return;
     }
 
     const id = ++seq.current;
+
+    // Trust the bytes over the filename. Voice-memo exports in particular
+    // arrive as AAC-in-MP4 named `.mp3`; stored under that name, Storage
+    // serves them as audio/mpeg and iOS refuses to play them at all.
+    const picked = await withCorrectedType(raw, type);
+    if (seq.current !== id) return;
+
+    setFile(picked);
+
+    if (picked !== raw) {
+      setCompression({
+        state: "note",
+        message:
+          `This is really a ${picked.name.split(".").pop()?.toUpperCase()} file - ` +
+          `storing it as ${picked.name} so the app can play it.`,
+      });
+    }
+
     readDuration(URL.createObjectURL(picked), true);
-
-    if (type !== "video") return;
-
-    if (!canCompressInBrowser()) {
-      setCompression({
-        state: "note",
-        message:
-          "This browser can't compress video (needs WebCodecs - use Chrome, " +
-          "or run `npm run compress-video` on the file first).",
-      });
-      return;
-    }
-
-    setCompression({ state: "running", percent: null });
-    setPreparing(true);
-    try {
-      const compressed = await compressVideo(picked, (p: CompressProgress) => {
-        if (seq.current === id) {
-          setCompression({ state: "running", percent: p.percent });
-        }
-      });
-      if (seq.current !== id) return; // a newer file was picked meanwhile
-
-      // Phone footage shrinks enormously, but an already-encoded lesson can
-      // come out larger - keep whichever is actually smaller.
-      if (compressed.size < picked.size) {
-        setFile(compressed);
-        setCompression({ state: "done", from: picked.size, to: compressed.size });
-      } else {
-        setCompression({
-          state: "note",
-          message: "Already well encoded - uploading the original.",
-        });
-      }
-    } catch (err) {
-      if (seq.current !== id) return;
-      setCompression({
-        state: "note",
-        message:
-          (err instanceof Error ? err.message : "Compression failed.") +
-          " Uploading the original instead.",
-      });
-    } finally {
-      if (seq.current === id) setPreparing(false);
-    }
   }
 
   const parsed = parseInt(duration, 10);
@@ -183,7 +155,8 @@ export default function MediaFields({
     <>
       <div>
         <label className={label}>
-          Upload {type} file {existingUrl ? "(replaces current)" : ""}
+          Upload {type} file {existingUrl ? "(replaces current)" : ""}{" "}
+          <span className="font-normal text-neutral-400">({UPLOAD_BUILD})</span>
         </label>
         {/* Deliberately unnamed: the bytes go straight to Storage from
             LessonForm, so this must never become part of the form body. */}
@@ -191,38 +164,14 @@ export default function MediaFields({
           type="file"
           accept={type === "video" ? "video/*" : "audio/*"}
           onChange={onFileChange}
-          disabled={phase !== "idle" || compression.state === "running"}
+          disabled={phase !== "idle"}
           className={input}
         />
 
         {!file && (
           <p className="mt-1 text-xs text-neutral-400">
-            Nothing is uploaded yet - the file goes up when you press the button
-            below.
-          </p>
-        )}
-
-        {compression.state === "running" && (
-          <div className="mt-2">
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-neutral-200">
-              <div
-                className="h-full rounded-full bg-amber-500 transition-all"
-                style={{ width: `${compression.percent ?? 3}%` }}
-              />
-            </div>
-            <p className="mt-1 text-xs text-amber-700">
-              Compressing for streaming
-              {compression.percent != null ? ` - ${compression.percent}%` : "..."}
-              {" - don't save until this finishes."}
-            </p>
-          </div>
-        )}
-
-        {compression.state === "done" && (
-          <p className="mt-1 text-xs text-green-600">
-            Compressed {prettySize(compression.from)} to{" "}
-            {prettySize(compression.to)} (
-            {(compression.from / compression.to).toFixed(1)}x smaller).
+            Nothing is uploaded yet. Video is compressed for streaming and
+            uploaded when you press the button below.
           </p>
         )}
 
@@ -230,7 +179,7 @@ export default function MediaFields({
           <p className="mt-1 text-xs text-amber-600">{compression.message}</p>
         )}
 
-        {file && !uploading && compression.state !== "running" && (
+        {file && !uploading && (
           <p className="mt-1 text-xs text-neutral-500">
             Ready: <span className="font-medium">{file.name}</span> (
             {prettySize(file.size)}) - will upload when you save.
